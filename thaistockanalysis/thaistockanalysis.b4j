@@ -1,0 +1,496 @@
+﻿AppType=StandardJava
+Build1=Default,b4j.example
+Group=Default Group
+Library1=jcore
+Library2=jokhttputils2
+Library3=jsoup
+Library4=json
+Module1=Calculate
+NumberOfFiles=0
+NumberOfLibraries=4
+NumberOfModules=1
+Version=10.3
+@EndOfDesignText@
+'Non-UI application (console / server application)
+#Region Project Attributes 
+	#CommandLineArgs:
+	#MergeLibraries: True 
+#End Region
+
+Sub Process_Globals
+	Dim jdata As String
+	Dim livetimer As Timer
+	Dim server As String = "http://app.shwemyanmar2d.us/"
+	Dim lserver  As String = "http://localhost:1411"
+	Dim site As String = "https://www.lottosociety.com/index.php?board=4.0"
+	Dim dateList As List
+	Dim idlist As List
+	Dim TopicsList As List
+	Dim mainlist As List
+	Dim setlotto As String
+	Dim setlottotime As Long
+	Type tiemandset(isOpen As Boolean,isMorning As Boolean)
+	Dim ts As tiemandset
+	Dim stockserver As String = "https://thaistockanalysis.com/"
+	
+	Dim timer As Timer
+End Sub
+
+Sub AppStart (Args() As String)
+	
+	DateTime.DateFormat = "yyyy-MM-dd"
+	Log("Hello world!!!")
+	timer.Initialize("timer",1000)
+	timer.Enabled = True
+	ts.isMorning=False
+	ts.isOpen=True
+	download
+StartMessageLoop
+End Sub
+
+Sub selectParttime(dt As Long)
+	Log("check time")
+	If dt > DateTime.TimeParse("9:32:00") And dt < DateTime.TimeParse("9:32:03") Then
+		ts.isMorning=True
+		ts.isOpen = True
+		download
+		Log("morning Open")
+		timer.Enabled=False
+		Else If dt > DateTime.TimeParse("12:03:00")  And dt <DateTime.TimeParse("12:03:03")Then
+		Log("morning Close")
+			Log("mN Close")
+			ts.isMorning=True
+			ts.isOpen=False
+			
+			download
+			timer.Enabled=False
+			
+			Else If dt > DateTime.TimeParse("13:33:00") And dt< DateTime.TimeParse("13:33:03") Then
+				ts.isMorning=False
+				ts.isOpen=True
+				download
+		Log("Afternoon_Open")
+				
+timer.Enabled =False
+				
+				Else If dt > DateTime.TimeParse("16:13:00") And dt < DateTime.TimeParse("16:13:03")Then
+					ts.isMorning=False
+					ts.isOpen=False
+					download
+					Log("Afternoon Close")
+					timer.Enabled=False
+	End If
+End Sub
+
+
+Sub PoststockData (data As String)
+	Dim j As HttpJob
+	j.Initialize("poststockdata",Me)
+	j.PostString(stockserver&"api/market-data-analysis",data)
+End Sub
+
+Sub timer_tick
+
+	selectParttime(DateTime.Now)
+End Sub
+
+Sub downloaddata (datauri As String,m As Map)
+	Dim j As HttpJob
+	j.Initialize("datagetter",Me)
+	j.Download(datauri)
+	
+	j.Tag=m
+End Sub
+
+Sub download
+	Dim j As HttpJob
+	j.Initialize("getter",Me)
+	j.Download(site)
+End Sub
+
+
+Sub JobDone(job As HttpJob)
+	Try
+		If job.Success Then
+			Select job.JobName
+
+				Case "getter"
+					Sleep(3000)
+					timer.Enabled=True
+				'	Log(job.GetString)
+					Dim jsoup As jSoup
+
+					Dim ls As List =jsoup.getElementsByTag(job.GetString,"tbody")
+					If ls.Size>0 Then
+						Dim table As String = ls.Get(1)
+						'Log(table)
+						dateList = jsoup.selectorElementText(table,"span")
+						Dim preTopicsList As List = jsoup.selectorElementAttr(table,"a","href")
+						
+						idlist.Initialize
+					
+						TopicsList.Initialize
+						For i = 0 To preTopicsList.Size -1
+							Dim tp  As String = preTopicsList.Get(i)
+							If tp.Contains("#") = False And tp.Contains("topic")Then
+								idlist.Add(tp.SubString2(tp.IndexOf("=")+1,tp.Length).Replace(".0",""))
+								TopicsList.Add(tp)
+							End If
+						Next
+				
+						For a = 0 To Min(TopicsList.Size - 1, dateList.Size - 1)
+							Dim m As Map
+							m.Initialize
+
+							Dim thdate As String = dateList.Get(a)
+							thdate = thdate.Replace(" (ช่อง 9)", "")
+							m.Put("thaidate", thdate)
+							m.Put("date", ThaiToEngDate(thdate))
+							m.Put("id", idlist.Get(a))
+						
+								Log(m.Get("date"))
+							downloaddata(TopicsList.Get(a), m)
+						
+'							If m.Get("date")=DateTime.Date(DateTime.Now) Then
+'								downloaddata(TopicsList.Get(a), m)
+'							End If
+					Sleep(4000)
+							
+						Next
+	
+					Else
+						Return
+					End If
+			
+				Case "datagetter"
+					Dim j As HttpJob = Sender
+					Dim m As Map = j.Tag
+					Dim jsoup As jSoup
+					Dim ls As List = jsoup.getElementsByClass(job.GetString,"postarea")
+					Dim set As Float
+					If ls.Size >0 Then
+						Dim l As List
+						l.Initialize
+						Dim data As List
+						data.Initialize
+						 Select ts.isMorning
+						 	Case True
+								If ts.isOpen=True Then
+								data = 	jsoup.selectorElementText(ls.Get(0),"span")
+									Else
+								data = 	jsoup.selectorElementText(ls.Get(1),"span")
+										
+								End If
+								Case False
+								If ts.isOpen=True Then
+									data = 	jsoup.selectorElementText(ls.Get(2),"span")
+								Else
+									data = 	jsoup.selectorElementText(ls.Get(3),"span")
+										
+								End If
+						End Select
+						
+						Log(data.Size)
+						Log("===========")
+						
+						Dim mp As Map
+						mp.Initialize
+						If data.Size >0 Then
+							m.Put("title",data.Get(0))
+							Dim dat As String = data.Get(2)
+							Log("----------")
+							Dim dl As List =Regex.Split(" ",dat)
+							set= dl.Get(0)
+							
+							
+							Dim add As Float = dl.get(1) & dl.Get(2)
+							Log("----")
+							Log("xxxxxxxxxxx")
+
+							Log("-----------")
+							
+							
+							
+							Log("xxxxxxxxxxxxxxxxxxx")
+							Log(set)
+							Dim ss As String = set
+							
+							If ss <> "0000. 00" Then
+								Dim r As Double =ss.SubString2(ss.IndexOf(".")-1,ss.IndexOf(".")+2)
+								Dim addstr As String = add
+								Dim rs As Double = addstr.SubString2(addstr.IndexOf(".")-1,addstr.IndexOf(".")+2)
+								m.Put("fnum",Calculate.AdjustDouble(r))
+								m.Put("snum",Calculate.AdjustDouble(rs))
+								m.Put("set",set)
+								m.Put("change",add)
+								Log(add)
+								If ts.isMorning=True Then
+									Log("morning")
+									setlottotime = DateTime.TimeParse("12:05:30")
+						
+									Dim jdlp As JSONGenerator
+									jdlp.Initialize(m)
+									Calculate.jobtag = jdlp.ToString
+									dlp("https://shwemyanmar2d.us/?q=SELECT * FROM dailyresults ORDER BY date DESC")
+								
+								End If
+								If ts.isMorning=False Then
+									Log("evening")
+						
+									setlottotime = DateTime.TimeParse("14:03:00")
+									Dim mm As Map  = m
+									Dim jdlp As JSONGenerator
+									jdlp.Initialize(mm)
+									Calculate.jobtag = jdlp.ToString
+									dlp("https://shwemyanmar2d.us/live.php")
+									
+								End If
+							End If
+							
+						
+							
+						End If
+					End If
+					
+				Case "dlp"
+				
+					Log("dmp")
+					Log(job.GetString)
+			
+					Dim  dlpp As String = Calculate.jobtag
+				
+					Dim jsdlpp As JSONParser
+					jsdlpp.Initialize(dlpp)
+					Dim mddlpp As Map = jsdlpp.NextObject
+			
+					Dim jsondlp As JSONParser
+					jsondlp.Initialize(job.GetString)
+				Log("=========")
+					Dim lp As List = jsondlp.NextArray
+					If lp.Size >0 Then
+					
+						Dim rtjson As JSONGenerator
+						
+						Dim presult As String
+						If ts.isMorning=True Then
+							Log("==============")
+							Dim mp As Map = lp.Get(0)
+							presult= mp.Get("430")
+							If presult.Contains("--") Then
+								Dim mp1  As Map = lp.Get(1)
+								presult =mp1. Get("430")
+								
+							End If
+							Log(lp)
+							Log(mp1)
+							
+							Log("><<><><>><><><><><><>><><><>")
+							
+							
+							Dim ids As List = Calculate.GenerateThreeGradeIDsFromSingleDigit(Calculate.DigitSumMod10(presult))
+							
+							Dim flist As List
+							flist.Initialize
+							Dim slist As List
+							slist.Initialize
+							
+							For Each id As String In ids
+								
+							
+								If id.Contains(Calculate.MostFrequentDigit(mddlpp.Get("fnum"))) Then
+								Else
+									Dim ls As List = Calculate.CombineDigitWithList(Calculate.MostFrequentDigit(mddlpp.Get("fnum")),id)
+									For i = 0 To ls.Size -1
+										Dim nm As String = ls.Get(i)
+									
+										flist.Add(nm)
+									
+									Next
+								End If
+							
+							Next
+							Log("xxxxxxxxxxxxxx============")
+						
+							For Each id As String In ids
+								If id.Contains(Calculate.MostFrequentDigit(mddlpp.Get("snum"))) Then
+								Else
+									Dim ls As List = Calculate.CombineDigitWithList(Calculate.MostFrequentDigit(mddlpp.Get("snum")),id)
+									For i = 0 To ls.Size -1
+										Dim nm As String = ls.Get(i)
+									
+											slist.Add(nm)
+									
+									Next
+								End If
+							Next
+							Dim ftext As String
+							Dim stext As String
+							
+							For b = 0 To flist.Size -1
+								ftext =ftext & "   "& "++"&flist.Get(b)&" "
+							Next
+							ftext = "<b>"& ftext &"</b><br><br>"
+							For a = 0 To slist.Size -1
+								stext =stext & "   "& "++"&slist.Get(a) &" "
+							Next
+							stext = "<b>"& stext &"</b><br>"
+							mddlpp.Put("text1",ftext)
+							mddlpp.Put("text2",stext)
+		
+							rtjson.Initialize(mddlpp)
+							
+			
+							
+						'	adddata(rtjson.ToString,mddlpp.Get("date"))
+							''postNoti(True)
+						Else 
+							Dim mp As Map = lp.Get(0)
+							presult= mp.Get("1200")
+							Dim ids As List = Calculate.GenerateThreeGradeIDsFromSingleDigit(Calculate.DigitSumMod10(presult))
+							Dim flist As List
+							flist.Initialize
+							Dim slist As List
+							slist.Initialize
+							For Each id As String In ids
+								
+							
+								If id.Contains(Calculate.MostFrequentDigit(mddlpp.Get("fnum"))) Then
+								Else
+									Dim ls As List = Calculate.CombineDigitWithList(Calculate.MostFrequentDigit(mddlpp.Get("fnum")),id)
+									For i = 0 To ls.Size -1
+										Dim nm As String = ls.Get(i)
+									
+										flist.Add(nm)
+									
+									Next
+								End If
+							
+							Next
+						
+							For Each id As String In ids
+							
+								If id.Contains(Calculate.MostFrequentDigit(mddlpp.Get("snum"))) Then
+								Else
+									Dim ls As List = Calculate.CombineDigitWithList(Calculate.MostFrequentDigit(mddlpp.Get("snum")),id)
+									For i = 0 To ls.Size -1
+										Dim nm As String = ls.Get(i)
+									
+										slist.Add(nm)
+									
+									Next
+								End If
+							
+							Next
+							Dim ftext As String
+							Dim stext As String
+							
+							For b = 0 To flist.Size -1
+								ftext =ftext & " "& "++"&flist.Get(b)&" "
+							Next
+							ftext = "<b>"& ftext &"</b><br><br>"
+							For a = 0 To slist.Size -1
+								Log(stext)
+								stext =stext & " "& "++"&slist.Get(a) &" "
+							Next
+							stext = "<b>"& stext &"</b><br>"
+							mddlpp.Put("text1",ftext)
+							mddlpp.Put("text2",stext)
+						
+							rtjson.Initialize(mddlpp)
+							
+							
+				
+						'	adddata(rtjson.ToString,mddlpp.Get("date"))
+							'postNoti(False)
+						End If
+						
+					
+						Dim postm As Map 
+						postm.Initialize
+						postm.Put("date",mddlpp.Get("date"))
+						Dim mdata As Map
+						mdata.Initialize
+						mdata.Put("index",mddlpp.Get("set"))
+						mdata.Put("change",mddlpp.Get("change"))
+						If ts.isOpen= True Then
+							mdata.Put("highlights",mddlpp.Get("text1")&mddlpp.Get("text2"))
+						End If
+		
+						Select ts.isMorning
+							Case True
+								If ts.isOpen = True Then
+									postm.Put("morning_open",mdata)
+									Else
+									postm.Put("morning_close",mdata)
+								End If
+								Case False
+								If ts.isOpen = True Then
+									postm.Put("afternoon_open",mdata)
+								Else
+									postm.Put("afternoon_close",mdata)
+								End If
+						End Select
+						
+						Dim finalpostjson As JSONGenerator
+						finalpostjson.Initialize(postm)
+						Log(finalpostjson.ToString)
+						PoststockData(finalpostjson.ToString)
+					End If
+				Case "poststockdata"
+					timer.Enabled=True
+					
+					Log(job.GetString)
+			End Select
+		End If
+	Catch
+		Log(LastException)
+	End Try
+End Sub
+
+
+Sub ThaiToEngDate(thaiText As String) As String
+	Dim months As Map
+	months.Initialize
+	months.Put("มกราคม", 1)
+	months.Put("กุมภาพันธ์", 2)
+	months.Put("มีนาคม", 3)
+	months.Put("เมษายน", 4)
+	months.Put("พฤษภาคม", 5)
+	months.Put("มิถุนายน", 6)
+	months.Put("กรกฎาคม", 7)
+	months.Put("สิงหาคม", 8)
+	months.Put("กันยายน", 9)
+	months.Put("ตุลาคม", 10)
+	months.Put("พฤศจิกายน", 11)
+	months.Put("ธันวาคม", 12)
+    
+	thaiText = thaiText.Replace("กรกฏาคม", "กรกฎาคม")
+	thaiText = thaiText.Replace("พฤศจกายน", "พฤศจิกายน")
+	thaiText = thaiText.Replace("เมษายนยน", "เมษายน")
+	' Regex နဲ့နေ့၊လ၊နှစ်ထုတ်မယ်
+	Dim m As Matcher = Regex.Matcher("(\d{1,2})\s([ก-๙]+)\s(\d{4})", thaiText)
+	If m.Find Then
+		Dim day As Int = m.Group(1)
+		Dim monthName As String = m.Group(2)
+		Dim yearThai As Int = m.Group(3)
+        
+		If months.ContainsKey(monthName) Then
+			Dim month As Int = months.Get(monthName)
+			Dim year As Int = yearThai - 543 ' Thai year to Gregorian
+            
+			' Use NumberFormat2 for zero-padded formatting
+			Return NumberFormat2(year, 1, 0, 0, False) & "-" & _
+                   NumberFormat2(month, 2, 0, 0, False) & "-" & _
+                   NumberFormat2(day, 2, 0, 0, False)
+		End If
+	End If
+    
+	Return "Invalid Date"
+End Sub
+
+Sub dlp (link As String)
+	Dim j As HttpJob
+	j.Initialize("dlp",Me)
+	j.Download(link)
+	
+End Sub
